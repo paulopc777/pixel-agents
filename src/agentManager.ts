@@ -103,6 +103,7 @@ export async function launchNewTerminal(
   const agent: AgentState = {
     id,
     terminalRef: terminal,
+    isExternal: false,
     projectDir,
     jsonlFile: expectedFile,
     fileOffset: 0,
@@ -241,7 +242,8 @@ export function persistAgents(
   for (const agent of agents.values()) {
     persisted.push({
       id: agent.id,
-      terminalName: agent.terminalRef.name,
+      terminalName: agent.terminalRef?.name ?? '',
+      isExternal: agent.isExternal || undefined,
       jsonlFile: agent.jsonlFile,
       projectDir: agent.projectDir,
       folderName: agent.folderName,
@@ -275,12 +277,26 @@ export function restoreAgents(
   let restoredProjectDir: string | null = null;
 
   for (const p of persisted) {
-    const terminal = liveTerminals.find((t) => t.name === p.terminalName);
-    if (!terminal) continue;
+    let terminal: vscode.Terminal | undefined;
+    const isExternal = p.isExternal ?? false;
+
+    if (isExternal) {
+      // External agents — restore if JSONL file still exists on disk
+      try {
+        if (!fs.existsSync(p.jsonlFile)) continue;
+      } catch {
+        continue;
+      }
+    } else {
+      // Terminal agents — find matching terminal by name
+      terminal = liveTerminals.find((t) => t.name === p.terminalName);
+      if (!terminal) continue;
+    }
 
     const agent: AgentState = {
       id: p.id,
       terminalRef: terminal,
+      isExternal,
       projectDir: p.projectDir,
       jsonlFile: p.jsonlFile,
       fileOffset: 0,
@@ -302,7 +318,11 @@ export function restoreAgents(
 
     agents.set(p.id, agent);
     knownJsonlFiles.add(p.jsonlFile);
-    console.log(`[Pixel Agents] Restored agent ${p.id} → terminal "${p.terminalName}"`);
+    if (isExternal) {
+      console.log(`[Pixel Agents] Restored external agent ${p.id} → ${path.basename(p.jsonlFile)}`);
+    } else {
+      console.log(`[Pixel Agents] Restored agent ${p.id} → terminal "${p.terminalName}"`);
+    }
 
     if (p.id > maxId) maxId = p.id;
     // Extract terminal index from name like "Claude Code #3"
@@ -361,6 +381,35 @@ export function restoreAgents(
     }
   }
 
+  // After a short delay, remove restored terminal agents that never received data.
+  // These are dead terminals restored by VS Code (e.g., after /clear or restart)
+  // where Claude is no longer running.
+  const restoredTerminalIds = [...agents.entries()]
+    .filter(([, a]) => !a.isExternal && a.terminalRef)
+    .map(([id]) => id);
+  if (restoredTerminalIds.length > 0) {
+    setTimeout(() => {
+      for (const id of restoredTerminalIds) {
+        const agent = agents.get(id);
+        if (agent && !agent.isExternal && agent.linesProcessed === 0) {
+          console.log(`[Pixel Agents] Removing restored terminal agent ${id}: no data received`);
+          agent.terminalRef?.dispose();
+          removeAgent(
+            id,
+            agents,
+            fileWatchers,
+            pollingTimers,
+            waitingTimers,
+            permissionTimers,
+            jsonlPollTimers,
+            doPersist,
+          );
+          webview?.postMessage({ type: 'agentClosed', id });
+        }
+      }
+    }, 10_000); // 10 seconds grace period
+  }
+
   // Advance counters past restored IDs
   if (maxId >= nextAgentIdRef.current) {
     nextAgentIdRef.current = maxId + 1;
@@ -408,11 +457,15 @@ export function sendExistingAgents(
     Record<string, { palette?: number; seatId?: string }>
   >(WORKSPACE_KEY_AGENT_SEATS, {});
 
-  // Include folderName per agent
+  // Include folderName and isExternal per agent
   const folderNames: Record<number, string> = {};
+  const externalAgents: Record<number, boolean> = {};
   for (const [id, agent] of agents) {
     if (agent.folderName) {
       folderNames[id] = agent.folderName;
+    }
+    if (agent.isExternal) {
+      externalAgents[id] = true;
     }
   }
   console.log(
@@ -424,6 +477,7 @@ export function sendExistingAgents(
     agents: agentIds,
     agentMeta,
     folderNames,
+    externalAgents,
   });
 
   sendCurrentAgentStatuses(agents, webview);
