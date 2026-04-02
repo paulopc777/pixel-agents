@@ -75,7 +75,7 @@ export function processTranscriptLine(
     // Resilient content extraction: support both record.message.content and record.content
     // Claude Code may change the JSONL structure across versions
     const assistantContent = record.message?.content ?? record.content;
-
+    console.log('record.type  : ' + record.type);
     if (record.type === 'assistant' && Array.isArray(assistantContent)) {
       const blocks = assistantContent as Array<{
         type: string;

@@ -14,6 +14,7 @@ export default class AgentManager {
   }
 
   private createAgent(agentSelect: AgentSelect): IAgent {
+    console.log(agentSelect);
     switch (agentSelect) {
       case 'cloud':
         return new ClaudeManager();

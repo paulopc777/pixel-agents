@@ -284,8 +284,10 @@ copilot --resume=$SESSION_TESTE --yolo --model gpt-4.1`;
     webview: vscode.Webview | undefined,
     doPersist: () => void,
   ): void {
+    console.log('[Pixel Agents] restoreAgents executed');
     const persisted = context.workspaceState.get<PersistedAgent[]>(WORKSPACE_KEY_AGENTS, []);
     if (persisted.length === 0) return;
+    console.log('[Pixel Agents] persisted agents found: ', persisted.length);
 
     const liveTerminals = vscode.window.terminals;
     let maxId = 0;
@@ -402,15 +404,21 @@ copilot --resume=$SESSION_TESTE --yolo --model gpt-4.1`;
     // After a short delay, remove restored terminal agents that never received data.
     // These are dead terminals restored by VS Code (e.g., after /clear or restart)
     // where Claude is no longer running.
+
+    console.log('[Pixel Agents Remove] Checking restored terminal agents...');
+    console.log([...agents.entries()]);
+
     const restoredTerminalIds = [...agents.entries()]
       .filter(([, a]) => !a.isExternal && a.terminalRef)
       .map(([id]) => id);
+
     if (restoredTerminalIds.length > 0) {
       setTimeout(() => {
         for (const id of restoredTerminalIds) {
           const agent = agents.get(id);
           if (agent && !agent.isExternal && agent.linesProcessed === 0) {
             console.log(`[Pixel Agents] Removing restored terminal agent ${id}: no data received`);
+            console.log(agent);
             agent.terminalRef?.dispose();
             this.removeAgent(
               id,

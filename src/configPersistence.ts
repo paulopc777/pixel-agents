@@ -11,7 +11,8 @@ export interface PixelAgentsConfig {
 
 const DEFAULT_CONFIG: PixelAgentsConfig = {
   externalAssetDirectories: [],
-  agent_type: 'cloud',
+  // Default to 'copilot' for new users, since it's the more common agent type and has better support for tool usage in the transcript parser
+  agent_type: 'copilot',
 };
 
 function getConfigFilePath(): string {
