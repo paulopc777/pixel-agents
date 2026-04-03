@@ -530,6 +530,7 @@ function processProgressRecord(
           parentToolId,
           toolId: block.id,
           status,
+          toolName,
         });
       }
     }
